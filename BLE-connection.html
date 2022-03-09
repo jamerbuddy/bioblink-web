@@ -1,18 +1,37 @@
 
-<button id="readStateMachine">Read current state machine value</button>
-<button id="startNotificationsState" disabled>Start notifications for state machine</button>
-<button id="readBatteryLevel">Read battery level</button>
-<button id="startNotificationsBattery" disabled>Start notifications for battery</button>
-<button id="stopNotifications" disabled>Stop notifications</button>
-<button id="reset">Reset bluetooth device</button>
+<button id="startNotifications">Start notifications</button>
 
 <script>
     var bluetoothDevice;
     var stateMachineCharacteristic;
     var batteryLevelCharacteristic;
-    var blinkServiceUuid = '569a180f-b87f-490c-92cb-11ba5ea5167c'
-    var stateMachineCharacteristicUuid = '569a2031-b87f-490c-92cb-11ba5ea5167c'
-    var batteryLevelCharacteristicUuid = '569a2a19-b87f-490c-92cb-11ba5ea5167c'
+
+    // uuids
+    var BLINK_SERVICE_UUID = '569a180f-b87f-490c-92cb-11ba5ea5167c'
+    var STATE_MACHINE_CHARACTERISTIC_UUID = '569a2031-b87f-490c-92cb-11ba5ea5167c'
+    var BATTERY_LEVEL_CHARACTERISTIC_UUID = '569a2a19-b87f-490c-92cb-11ba5ea5167c'
+
+    class Characteristic {
+        constructor(characteristicUuid, serviceUuid) {
+            this.characteristicUuid = characteristicUuid;
+            this.serviceUuid = serviceUuid;
+        }
+
+        setupConnection() {}
+        onValueChange() {}
+    }
+
+    class Blink {
+        constructor(risingEdgeTime, fallingEdgeTime) {
+            // UNIX timestamps (milliseconds since 1980)
+            this.risingEdgeTime = risingEdgeTime
+            this.fallingEdgeTime = fallingEdgeTime
+        }
+
+        calcDuration() {
+            return this.fallingEdgeTime - this.risingEdgeTime
+        }
+    }
 
     function onReadStateMachineButton() {
         return (bluetoothDevice ? Promise.resolve() : requestDevice())
@@ -20,6 +39,9 @@
         .then(_ => {
             console.log('Reading state machine value...');
             return stateMachineCharacteristic.readValue();
+        })
+        .then(_ => {
+            onStartNotificationsStateMachine()
         })
         .catch(error => {
             console.log('Argh! ' + error);
@@ -32,10 +54,18 @@
         .then(_ => {
             console.log('Reading battery level value...');
             return batteryLevelCharacteristic.readValue();
+        }).then(_ => {
+            onStartNotificationsBatteryLevel()
         })
         .catch(error => {
             console.log('Argh! ' + error);
         });
+    }
+
+    function onStartNotifications() {
+        return Promise.resolve()
+        .then(onReadStateMachineButton)
+        .then(onReadBatteryLevelButton)
     }
 
     function requestDevice() {
@@ -58,19 +88,17 @@
         return bluetoothDevice.gatt.connect()
         .then(server => {
             console.log('Getting blink service...');
-            return server.getPrimaryService(blinkServiceUuid);
+            return server.getPrimaryService(BLINK_SERVICE_UUID);
         })
         .then(service => {
             console.log('Getting state machine characteristic...');
-            return service.getCharacteristic(stateMachineCharacteristicUuid);
+            return service.getCharacteristic(STATE_MACHINE_CHARACTERISTIC_UUID);
         })
         .then(characteristic => {
             console.log('> State machine characteristic setup')
             stateMachineCharacteristic = characteristic;
             stateMachineCharacteristic.addEventListener('characteristicvaluechanged',
                 handleStateValueChange);
-            document.querySelector('#startNotificationsState').disabled = false;
-            document.querySelector('#stopNotifications').disabled = true;
         });
     }
 
@@ -83,30 +111,28 @@
         return bluetoothDevice.gatt.connect()
         .then(server => {
             console.log('Getting blink service...');
-            return server.getPrimaryService(blinkServiceUuid);
+            return server.getPrimaryService(BLINK_SERVICE_UUID);
         })
         .then(service => {
             console.log('Getting battery level characteristic...');
-            return service.getCharacteristic(batteryLevelCharacteristicUuid);
+            return service.getCharacteristic(BATTERY_LEVEL_CHARACTERISTIC_UUID);
         })
         .then(characteristic => {
             console.log('> Battery level characteristic setup')
             batteryLevelCharacteristic = characteristic;
             batteryLevelCharacteristic.addEventListener('characteristicvaluechanged',
                 handleBatteryLevelChange);
-            document.querySelector('#startNotificationsBattery').disabled = false;
-            document.querySelector('#stopNotifications').disabled = true;
         });
     }
 
     function handleStateValueChange(event) {
         let value = event.target.value.getUint8(0);
-        console.log('> Current state machine value: ' + value);
+        console.log('> State machine value: ' + value);
     }
 
     function handleBatteryLevelChange(event) {
         let value = event.target.value.getUint8(0);
-        console.log('> Current battery level: ' + value);
+        console.log('> Battery level: ' + value + "%");
     }
 
     function onStartNotificationsStateMachine() {
@@ -114,8 +140,6 @@
         stateMachineCharacteristic.startNotifications()
         .then(_ => {
             console.log('> Notifications started for state machine');
-            document.querySelector('#startNotificationsState').disabled = true;
-            document.querySelector('#stopNotifications').disabled = false;
         })
         .catch(error => {
             console.log('Argh! ' + error);
@@ -127,21 +151,6 @@
         batteryLevelCharacteristic.startNotifications()
         .then(_ => {
             console.log('> Notifications started for battery level');
-            document.querySelector('#startNotificationsBattery').disabled = true;
-            document.querySelector('#stopNotifications').disabled = false;
-        })
-        .catch(error => {
-            console.log('Argh! ' + error);
-        });
-    }
-
-    function onStopNotificationsButtonClick() {
-        console.log('Stopping notifications...');
-        stateMachineCharacteristic.stopNotifications()
-        .then(_ => {
-            console.log('> Notifications stopped');
-            document.querySelector('#startNotificationsState').disabled = false;
-            document.querySelector('#stopNotifications').disabled = true;
         })
         .catch(error => {
             console.log('Argh! ' + error);
@@ -150,29 +159,9 @@
 
     function onDisconnected() {
         console.log('> Bluetooth Device disconnected');
-        setupStateMachineCharacteristic()
-        .catch(error => {
-            console.log('Argh! ' + error);
-        });
     }
 
-    document.querySelector('#readStateMachine').addEventListener('click', function() {
-        onReadStateMachineButton();
-    });
-
-    document.querySelector('#readBatteryLevel').addEventListener('click', function() {
-        onReadBatteryLevelButton();
-    });
-
-    document.querySelector('#startNotificationsState').addEventListener('click', function(event) {
-        onStartNotificationsStateMachine();
-    });
-
-    document.querySelector('#startNotificationsBattery').addEventListener('click', function(event) {
-        onStartNotificationsBatteryLevel();
-    });
-
-    document.querySelector('#stopNotifications').addEventListener('click', function(event) {
-        onStopNotificationsButtonClick();
+    document.querySelector('#startNotifications').addEventListener('click', function() {
+        onStartNotifications();
     });
 </script>
