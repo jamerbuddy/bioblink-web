@@ -1,0 +1,178 @@
+
+<button id="readStateMachine">Read current state machine value</button>
+<button id="startNotificationsState" disabled>Start notifications for state machine</button>
+<button id="readBatteryLevel">Read battery level</button>
+<button id="startNotificationsBattery" disabled>Start notifications for battery</button>
+<button id="stopNotifications" disabled>Stop notifications</button>
+<button id="reset">Reset bluetooth device</button>
+
+<script>
+    var bluetoothDevice;
+    var stateMachineCharacteristic;
+    var batteryLevelCharacteristic;
+    var blinkServiceUuid = '569a180f-b87f-490c-92cb-11ba5ea5167c'
+    var stateMachineCharacteristicUuid = '569a2031-b87f-490c-92cb-11ba5ea5167c'
+    var batteryLevelCharacteristicUuid = '569a2a19-b87f-490c-92cb-11ba5ea5167c'
+
+    function onReadStateMachineButton() {
+        return (bluetoothDevice ? Promise.resolve() : requestDevice())
+        .then(setupStateMachineCharacteristic)
+        .then(_ => {
+            console.log('Reading state machine value...');
+            return stateMachineCharacteristic.readValue();
+        })
+        .catch(error => {
+            console.log('Argh! ' + error);
+        });
+    }
+
+    function onReadBatteryLevelButton() {
+        return (bluetoothDevice ? Promise.resolve() : requestDevice())
+        .then(setupBatteryLevelCharacteristic)
+        .then(_ => {
+            console.log('Reading battery level value...');
+            return batteryLevelCharacteristic.readValue();
+        })
+        .catch(error => {
+            console.log('Argh! ' + error);
+        });
+    }
+
+    function requestDevice() {
+        console.log('Requesting any Bluetooth Device...');
+        return navigator.bluetooth.requestDevice({
+            acceptAllDevices: true
+        })
+        .then(device => {
+            bluetoothDevice = device;
+            bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected);
+        });
+    }
+
+    function setupStateMachineCharacteristic() {
+        if (bluetoothDevice.gatt.connected && stateMachineCharacteristic) {
+            return Promise.resolve();
+        }
+
+        console.log('Connecting to GATT Server...');
+        return bluetoothDevice.gatt.connect()
+        .then(server => {
+            console.log('Getting blink service...');
+            return server.getPrimaryService(blinkServiceUuid);
+        })
+        .then(service => {
+            console.log('Getting state machine characteristic...');
+            return service.getCharacteristic(stateMachineCharacteristicUuid);
+        })
+        .then(characteristic => {
+            console.log('> State machine characteristic setup')
+            stateMachineCharacteristic = characteristic;
+            stateMachineCharacteristic.addEventListener('characteristicvaluechanged',
+                handleStateValueChange);
+            document.querySelector('#startNotificationsState').disabled = false;
+            document.querySelector('#stopNotifications').disabled = true;
+        });
+    }
+
+    function setupBatteryLevelCharacteristic() {
+        if (bluetoothDevice.gatt.connected && batteryLevelCharacteristic) {
+            return Promise.resolve();
+        }
+
+        console.log('Connecting to GATT Server...');
+        return bluetoothDevice.gatt.connect()
+        .then(server => {
+            console.log('Getting blink service...');
+            return server.getPrimaryService(blinkServiceUuid);
+        })
+        .then(service => {
+            console.log('Getting battery level characteristic...');
+            return service.getCharacteristic(batteryLevelCharacteristicUuid);
+        })
+        .then(characteristic => {
+            console.log('> Battery level characteristic setup')
+            batteryLevelCharacteristic = characteristic;
+            batteryLevelCharacteristic.addEventListener('characteristicvaluechanged',
+                handleBatteryLevelChange);
+            document.querySelector('#startNotificationsBattery').disabled = false;
+            document.querySelector('#stopNotifications').disabled = true;
+        });
+    }
+
+    function handleStateValueChange(event) {
+        let value = event.target.value.getUint8(0);
+        console.log('> Current state machine value: ' + value);
+    }
+
+    function handleBatteryLevelChange(event) {
+        let value = event.target.value.getUint8(0);
+        console.log('> Current battery level: ' + value);
+    }
+
+    function onStartNotificationsStateMachine() {
+        console.log('Starting notifications for state machine...');
+        stateMachineCharacteristic.startNotifications()
+        .then(_ => {
+            console.log('> Notifications started for state machine');
+            document.querySelector('#startNotificationsState').disabled = true;
+            document.querySelector('#stopNotifications').disabled = false;
+        })
+        .catch(error => {
+            console.log('Argh! ' + error);
+        });
+    }
+
+    function onStartNotificationsBatteryLevel() {
+        console.log('Starting notifications for battery level...');
+        batteryLevelCharacteristic.startNotifications()
+        .then(_ => {
+            console.log('> Notifications started for battery level');
+            document.querySelector('#startNotificationsBattery').disabled = true;
+            document.querySelector('#stopNotifications').disabled = false;
+        })
+        .catch(error => {
+            console.log('Argh! ' + error);
+        });
+    }
+
+    function onStopNotificationsButtonClick() {
+        console.log('Stopping notifications...');
+        stateMachineCharacteristic.stopNotifications()
+        .then(_ => {
+            console.log('> Notifications stopped');
+            document.querySelector('#startNotificationsState').disabled = false;
+            document.querySelector('#stopNotifications').disabled = true;
+        })
+        .catch(error => {
+            console.log('Argh! ' + error);
+        });
+    }
+
+    function onDisconnected() {
+        console.log('> Bluetooth Device disconnected');
+        setupStateMachineCharacteristic()
+        .catch(error => {
+            console.log('Argh! ' + error);
+        });
+    }
+
+    document.querySelector('#readStateMachine').addEventListener('click', function() {
+        onReadStateMachineButton();
+    });
+
+    document.querySelector('#readBatteryLevel').addEventListener('click', function() {
+        onReadBatteryLevelButton();
+    });
+
+    document.querySelector('#startNotificationsState').addEventListener('click', function(event) {
+        onStartNotificationsStateMachine();
+    });
+
+    document.querySelector('#startNotificationsBattery').addEventListener('click', function(event) {
+        onStartNotificationsBatteryLevel();
+    });
+
+    document.querySelector('#stopNotifications').addEventListener('click', function(event) {
+        onStopNotificationsButtonClick();
+    });
+</script>
