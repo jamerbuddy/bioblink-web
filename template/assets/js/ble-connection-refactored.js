@@ -8,8 +8,17 @@ var BATTERY_CHARACTERISTIC_UUID = '569a2a19-b87f-490c-92cb-11ba5ea5167c'
 var HAPTIC_COUNT_CHARACTERISTIC_UUID = '569a2030-b87f-490c-92cb-11ba5ea5167c'
 var HAPTIC_INTERVAL_CHARACTERISTIC_UUID = '569a2035-b87f-490c-92cb-11ba5ea5167c'
 
-// CA:26:44:A2:CE:40
+// GLASSES MAC: CA:26:44:A2:CE:40
+// DEVKIT MAC:  EF:14:68:22:A8:1B
+
+var bluetoothDevice = null;
+
 var blinks = [];
+var betweenBlinksArr = []
+
+var sumBlinkDuration = 0;
+var sumBetweenBlinks = 0;
+
 var blinkLevel = 0;
 var risingTimestamp = 0;
 
@@ -58,12 +67,11 @@ class Blink {
 }
 
 class Characteristic {
-    constructor(characteristicUuid, onValueChange, identifier, bluetoothDevice) {
+    constructor(characteristicUuid, onValueChange, identifier) {
         this.characteristicUuid = characteristicUuid;
-        this.onValueChange = onValueChange
-        this.identifier = identifier
-        this.bluetoothDevice = bluetoothDevice;
-        this.characteristicObject = null;   
+        this.onValueChange = onValueChange;
+        this.identifier = identifier;
+        this.characteristicObject = null; 
     }
 
     // PUBLIC FUNCTIONS
@@ -83,38 +91,8 @@ class Characteristic {
     }
 
     setup() {
-        return (this.bluetoothDevice ? Promise.resolve() : this.requestDevice())
-        .then(this.requestCharacteristic)
-        .then(this.startNotifications)
-        .then(() => {
-            console.log(`> ${this.identifier} characteristic finished setup`)
-            return this.bluetoothDevice;
-        })
-        .catch(error => {
-            console.log(`Error with setting up characteristic ${this.identifier}: ${error}`);
-        });
-    }
-
-    // INTERNAL FUNCTIONS
-    requestDevice() {
-        console.log('Requesting any Bluetooth Device...');
-        return navigator.bluetooth.requestDevice({
-            acceptAllDevices: true,
-            optionalServices: [BLINK_SERVICE_UUID]
-        })
-        .then(device => {
-            console.log('> Bluetooth device succesfully saved')
-            this.bluetoothDevice = device;
-        });
-    }
-
-    requestCharacteristic() {
-        if (this.bluetoothDevice.gatt.connected && this.characteristicObject) {
-            return Promise.resolve();
-        }
-    
         console.log('Connecting to GATT Server...');
-        return this.bluetoothDevice.gatt.connect()
+        return bluetoothDevice.gatt.connect()
         .then(server => {
             console.log('Getting blink service...');
             return server.getPrimaryService(BLINK_SERVICE_UUID);
@@ -124,18 +102,22 @@ class Characteristic {
             return service.getCharacteristic(this.characteristicUuid);
         })
         .then(characteristic => {
-            console.log(`> ${this.identifier} characteristic successfully saved`)
             this.characteristicObject = characteristic;
             this.characteristicObject.addEventListener('characteristicvaluechanged',
                 this.onValueChange);
-        });
-    }
 
-    startNotifications() {
-        console.log(`Starting notifications for ${this.identifier} characteristic...`);
-        this.characteristicObject.startNotifications()
+            console.log(`> ${this.identifier} characteristic successfully saved`)
+            return characteristic
+        })
+        .then(characteristic => {
+            console.log(`> Starting notifications for ${this.identifier} characteristic...`)
+            characteristic.startNotifications()
+        })
         .then(_ => {
-            console.log(`> Notifications started for ${this.identifier} characteristic`);
+            console.log(`> ${this.identifier} characteristic finished setup`)
+        })
+        .catch(error => {
+            console.log(`Error with setting up characteristic: ${error}`);
         });
     }
 }
@@ -144,18 +126,82 @@ function handleComparatorChange(event) {
     let value = event.target.value.getUint8(0);
     if (value != blinkLevel) {
         blinkLevel = value
+
         var isRisingEdge = blinkLevel == 1
         var timestamp = Date.now()
-    
+
         if (isRisingEdge) {
-            console.log("Rising")
+            
             risingTimestamp = timestamp;
+
+            var betweenBlinks = 0
+            if (blinks.length > 0) {
+                var betweenBlinks = timestamp - blinks[blinks.length - 1].fallingEdgeTime
+                betweenBlinksArr.push(betweenBlinks)
+
+                sumBetweenBlinks += betweenBlinks
+
+                var averageBetweenBlinks = Math.round(sumBetweenBlinks / betweenBlinksArr.length)
+
+                document.getElementById("avg-between-blinks").innerHTML = averageBetweenBlinks  + "ms";
+            }
+
+            console.log("Rising, between: " + betweenBlinks)
         } else {
             var blink = new Blink(risingTimestamp, timestamp)
             blinks.push(blink)
-            console.log("Falling, duration: " + blink.calcDuration() + "ms");
-        } 
+            console.log("Falling, duration: " + blink.duration + "ms");
+
+            sumBlinkDuration += blink.duration
+            
+
+            var averageBlinkDuration = Math.round(sumBlinkDuration / blinks.length)
+            document.getElementById("avg-blink-duration").innerHTML =  averageBlinkDuration + "ms";
+        }
     }
+}
+
+function handleHapticCountChange(event) {
+    let value = event.target.value.getUint8(0);
+
+    document.getElementById("haptic-count").innerHTML =  value;
+    console.log("HAPTIC_COUNT change: " + value)
+}
+
+function handleBatteryChange(event) {
+    let value = event.target.value.getUint16(0, true);
+    let batteryPercent = convertRawBatteryAdcValue(value)
+    document.getElementById("battery").innerHTML =  batteryPercent + "%";
+    console.log("BATTERY change: " + batteryPercent)
+}
+
+function requestBluetoothDevice() {
+    console.log('Requesting any Bluetooth Device...');
+    return navigator.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: [BLINK_SERVICE_UUID]
+    })
+    .then(device => {
+        console.log('> Bluetooth device succesfully saved')
+        bluetoothDevice = device;
+    });
+}
+
+function convertRawBatteryAdcValue(rawValue) {
+
+    var voltage = (rawValue) / 1706.67 *  2 * 1000
+    
+    var thresholdsVoltage = [4200, 4150, 4110, 4080, 4020, 3980, 3950, 3910, 3870, 3840, 3820, 3800, 3790, 3770, 3750, 3730, 3710, 3690, 3610, 3270]
+    var thresholdsPercent = [100, 95, 90, 85, 80, 75, 70, 65, 60, 55, 50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 0]
+
+    for (var i = 0; i < 20; i++) {
+        if (voltage > thresholdsVoltage[i]) {
+            return thresholdsPercent[i]
+        }
+        
+    }
+    
+    return 0
 }
 
 function logKey(e) {
@@ -174,7 +220,9 @@ function logKey(e) {
                 var betweenBlinks = timestamp - blinks[blinks.length - 1].fallingEdgeTime
                 betweenBlinksArr.push(betweenBlinks)
 
-                const averageBetweenBlinks = Math.round(betweenBlinksArr.reduce((a, b) => a + b, 0) / betweenBlinksArr.length);
+                sumBetweenBlinks += betweenBlinks
+
+                var averageBetweenBlinks = sumBetweenBlinks / betweenBlinks.length
                 document.getElementById("avg-between-blinks").innerHTML = averageBetweenBlinks  + "ms";
             }
 
@@ -184,20 +232,30 @@ function logKey(e) {
             blinks.push(blink)
             console.log("Falling, duration: " + blink.duration + "ms");
 
-            const averageBlinkDuration = Math.round(blinks.reduce((total, next) => total + next.duration, 0) / blinks.length);
+            sumBlinkDuration += blink.duration
+            
 
-
-
+            var averageBlinkDuration = sumBlinkDuration / blinks.length
             document.getElementById("avg-blink-duration").innerHTML =  averageBlinkDuration + "ms";
-        }   
+        }
     }
 }
 
 function connectBluetooth() {
-    var comparatorCharacteristic = new Characteristic(COMPARATOR_CHARACTERISTIC_UUID, handleComparatorChange, "COMPARATOR");
-
     return Promise.resolve()
-    .then(comparatorCharacteristic.setup);
+    .then(requestBluetoothDevice)
+    .then(_ => {
+        var comparatorCharacteristic = new Characteristic(COMPARATOR_CHARACTERISTIC_UUID, handleComparatorChange, "COMPARATOR");
+        return comparatorCharacteristic.setup()
+    })
+    .then(_ => {
+        var hapticCountCharacteristic = new Characteristic(HAPTIC_COUNT_CHARACTERISTIC_UUID, handleHapticCountChange, "HAPTIC_COUNT");
+        return hapticCountCharacteristic.setup()
+    })
+    .then(_ => {
+        var batteryCharacteristic = new Characteristic(BATTERY_CHARACTERISTIC_UUID, handleBatteryChange, "BATTERY");
+        return batteryCharacteristic.setup()
+    });
 }
 
 document.querySelector('#connect-bluetooth').addEventListener('click', function() {
@@ -223,7 +281,7 @@ var intervalId = window.setInterval(function(){
 }, 7);
 
 
-betweenBlinksArr = []
+
 
 
 
