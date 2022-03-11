@@ -57,7 +57,8 @@ function onStartNotifications() {
 function requestDevice() {
     console.log('Requesting any Bluetooth Device...');
     return navigator.bluetooth.requestDevice({
-        acceptAllDevices: true
+        acceptAllDevices: true,
+        optionalServices: [BLINK_SERVICE_UUID]
     })
     .then(device => {
         bluetoothDevice = device;
@@ -111,27 +112,10 @@ function setupBatteryLevelCharacteristic() {
     });
 }
 
-function handleStateValueChange(event) {
-    let value = event.target.value.getUint8(0);
-    if (value != blinkLevel) {
-        blinkLevel = value
-        var isRisingEdge = blinkLevel == 1
-        var timestamp = Date.now()
-    
-        if (isRisingEdge) {
-            console.log("Rising")
-            risingTimestamp = timestamp;
-        } else {
-            var blink = new Blink(risingTimestamp, timestamp)
-            blinks.push(blink)
-            console.log("Falling, duration: " + blink.calcDuration() + "ms");
-        } 
-    }
-}
+
 
 function handleBatteryLevelChange(event) {
     let value = event.target.value.getUint8(0);
-    console.log('> Battery level: ' + value + "%");
 }
 
 function onStartNotificationsStateMachine() {
@@ -175,6 +159,10 @@ class Blink {
         this.fallingEdgeTime = fallingEdgeTime
     }
 
+    get duration() {
+        return this.calcDuration()
+    }
+
     calcDuration() {
         return this.fallingEdgeTime - this.risingEdgeTime
     }
@@ -188,7 +176,7 @@ var risingTimestamp = 0;
 
 var currTimestamp = 200;
 
-var chartData = Array(100).fill(
+var chartData = Array(50).fill(
     {
         timestamp: 0,
         a: 0,
@@ -227,9 +215,10 @@ var intervalId = window.setInterval(function(){
     })
 
     blinkChart.setData(chartData)
-}, 1000);
+}, 7);
 
 
+betweenBlinksArr = []
 
 function logKey(e) {
     // Change in blink level detected
@@ -239,13 +228,64 @@ function logKey(e) {
         var timestamp = Date.now()
 
         if (isRisingEdge) {
-            console.log("Rising")
+            
             risingTimestamp = timestamp;
+
+            var betweenBlinks = 0
+            if (blinks.length > 0) {
+                var betweenBlinks = timestamp - blinks[blinks.length - 1].fallingEdgeTime
+                betweenBlinksArr.push(betweenBlinks)
+
+                const averageBetweenBlinks = Math.round(betweenBlinksArr.reduce((a, b) => a + b, 0) / betweenBlinksArr.length);
+                document.getElementById("avg-between-blinks").innerHTML = averageBetweenBlinks  + "ms";
+            }
+
+            // console.log("Rising, between: " + betweenBlinks)
         } else {
             var blink = new Blink(risingTimestamp, timestamp)
             blinks.push(blink)
-            console.log("Falling, duration: " + blink.calcDuration() + "ms");
+            console.log("Blink detected, duration: " + blink.duration + "ms");
+
+            const averageBlinkDuration = Math.round(blinks.reduce((total, next) => total + next.duration, 0) / blinks.length);
+
+
+
+            document.getElementById("avg-blink-duration").innerHTML =  averageBlinkDuration + "ms";
         }   
+    }
+}
+
+function handleStateValueChange(event) {
+    let value = event.target.value.getUint8(0);
+    if (value != blinkLevel) {
+        blinkLevel = value
+        var isRisingEdge = blinkLevel == 1
+        var timestamp = Date.now()
+    
+        if (isRisingEdge) {
+            risingTimestamp = timestamp;
+
+            var betweenBlinks = 0
+            if (blinks.length > 0) {
+                var betweenBlinks = timestamp - blinks[blinks.length - 1].fallingEdgeTime
+                betweenBlinksArr.push(betweenBlinks)
+
+                const averageBetweenBlinks = Math.round(betweenBlinksArr.reduce((a, b) => a + b, 0) / betweenBlinksArr.length);
+                document.getElementById("avg-between-blinks").innerHTML = averageBetweenBlinks  + "ms";
+            }
+
+            console.log("Rising, between: " + betweenBlinks)
+        } else {
+            var blink = new Blink(risingTimestamp, timestamp)
+            blinks.push(blink)
+            console.log("Falling, duration: " + blink.duration + "ms");
+
+            const averageBlinkDuration = Math.round(blinks.reduce((total, next) => total + next.duration, 0) / blinks.length);
+
+
+
+            document.getElementById("avg-blink-duration").innerHTML =  averageBlinkDuration + "ms";
+        }
     }
 }
 
