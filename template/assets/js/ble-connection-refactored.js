@@ -14,6 +14,7 @@ var DATABASE_ENABLED = false;
 
 var bluetoothDevice = null;
 var hapticIntervalCharacteristic = null;
+let CURRENT_STATE = "";
 
 var blinks = [];
 var betweenBlinksArr = []
@@ -33,9 +34,35 @@ var chartData = Array(50).fill(
         voltage: 0,
     }
 )
+var envData = Array(50).fill(
+    {
+        timestamp: 0,
+        a: 0,
+        voltage: 0,
+    }
+)
 var blinkChart = Morris.Area({
     element: 'morris-area-chart',
     data: chartData,
+    xkey: 'timestamp',
+    ykeys: ['a', 'voltage'],
+    labels: ['Series A', 'Series B'],
+    pointSize: 0,
+    fillOpacity: 0.8,
+    pointStrokeColors: ['#b4becb', '#A389D4'],
+    behaveLikeLine: true,
+    gridLineColor: '#e0e0e0',
+    lineWidth: 0,
+    smooth: false,
+    hideHover: 'auto',
+    responsive:true,
+    lineColors: ['#b4becb', '#A389D4'],
+    resize: true
+});
+
+var envChart = Morris.Area({
+    element: 'morris-area-chart2',
+    data: envData,
     xkey: 'timestamp',
     ykeys: ['a', 'voltage'],
     labels: ['Series A', 'Series B'],
@@ -235,6 +262,12 @@ function convertRawBatteryAdcValue(rawValue) {
     return 0
 }
 
+function convertEnvelopeAdcValue(rawValue) {
+
+    var voltage = (rawValue) / 1137.78 *  2 * 1000
+    return voltage
+}
+
 function logKey(e) {
     // On B key press
     if (e.keyCode == 98) {
@@ -274,8 +307,97 @@ function connectBluetooth() {
     .then(_ => {
         hapticIntervalCharacteristic = new Characteristic(HAPTIC_INTERVAL_CHARACTERISTIC_UUID, handleHapticInteralChange, "HAPTIC_INTERVAL");
         return hapticIntervalCharacteristic.setup()
+    })
+    .then(_ => {
+        var EnvAdcCharacteristic = new Characteristic(ADC_CHARACTERISTIC_UUID, handleEnvAdcChange, "ENV_ADC");
+        return EnvAdcCharacteristic.setup()
+    })
+    .then(_ => {
+        var CurrentStateCharacteristic = new Characteristic(CURRENT_STATE_CHARACTERISTIC_UUID, handleCurrentStateChange, "CURRENT_STATE");
+        return CurrentStateCharacteristic.setup()
     });
 }
+
+
+function simpleMovingAverage(envdata, window = 4) {
+    if (!envdata || envdata.length < window) {
+      return [];
+    }
+  
+    //let index = window - 1;
+    var length = envdata.length + 1;
+  
+    var simpleMovingAverages;
+  
+    //while (++index < length) {
+      var windowSlice = envdata.slice(envdata.length -1 - window, envdata.length-1);
+      var sum = windowSlice.reduce((prev, curr) => prev + curr, 0);
+      simpleMovingAverages = (sum / window);
+    //}
+    console.log("simple moving avg value:" + simpleMovingAverages)
+    return simpleMovingAverages;
+ }
+
+var arrAdc = [];
+var global_ENV_value = 0
+
+function handleEnvAdcChange(event) {
+    let value = event.target.value.getUint16(0, true);
+
+    let EnvelopeSignal = convertEnvelopeAdcValue(value)
+
+
+    arrAdc.push(EnvelopeSignal)
+    var avg = simpleMovingAverage(arrAdc, 5)
+    global_ENV_value = EnvelopeSignal - avg
+
+    console.log("average env window: " + avg)
+    console.log("Env: " + EnvelopeSignal)
+}
+
+
+function handleCurrentStateChange(event) {
+    let value = event.target.value.getUint8(0);
+  
+    switch (value)  {
+        case 0:
+        CURRENT_STATE = "Turn off";
+        break;
+        case 1:
+        CURRENT_STATE = "Turn On";
+        break;
+        case 2: 
+        CURRENT_STATE = "BLE Connect";
+        break;
+        case 3: 
+        CURRENT_STATE = "Proximity Detect";
+        break;
+        case 4:
+        CURRENT_STATE = "Calibration";
+        break;
+        case 5: 
+        CURRENT_STATE = "Calibration Pass";
+        break;
+        case 6:
+        CURRENT_STATE = "Calibration Fail";    
+        break;
+        case 7: 
+        CURRENT_STATE = "Low Power Mode";
+        break; 
+        case 8: 
+        CURRENT_STATE = "High Power Mode";
+        break;
+        case 9:
+        CURRENT_STATE = "Change Mode";
+        break;
+        default:
+        CURRENT_STATE = "Undefined";
+
+    }
+
+    console.log("Current State: " + CURRENT_STATE)
+}
+
 
 function handleHapticInteralChange(event) {
     console.log("HAPTIC_INTERVAL changed")
@@ -305,6 +427,19 @@ var intervalId = window.setInterval(function(){
     })
 
     blinkChart.setData(chartData)
+}, 17);
+
+
+var intervalId2 = window.setInterval(function(){
+    envData.shift()
+    var currVoltage = global_ENV_value
+    envData.push({
+        timestamp: currTimestamp,
+        a: 0,
+        voltage: currVoltage
+    })
+
+    envChart.setData(envData)
 }, 17);
 
 
