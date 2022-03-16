@@ -13,6 +13,7 @@ var DATABASE_ENABLED = false;
 // DEVKIT MAC:  EF:14:68:22:A8:1B
 
 var bluetoothDevice = null;
+var hapticIntervalCharacteristic = null;
 
 var blinks = [];
 var betweenBlinksArr = []
@@ -240,7 +241,19 @@ function logKey(e) {
         // Toggle blink
         blinkLevel = 1 - blinkLevel
         handleBlink()
+    } else if (e.keyCode == 97) {
+        // Toggle blink
     }
+}
+
+function updateHapticInterval() {
+    console.log("Updating value")
+    const buffer = new ArrayBuffer(2);
+    var val = parseInt(document.getElementById('input-interval').value);
+    var array = new Int16Array(buffer);
+    array[0] = val;
+
+    hapticIntervalCharacteristic.updateValue(buffer)
 }
 
 function connectBluetooth() {
@@ -257,11 +270,23 @@ function connectBluetooth() {
     .then(_ => {
         var batteryCharacteristic = new Characteristic(BATTERY_CHARACTERISTIC_UUID, handleBatteryChange, "BATTERY");
         return batteryCharacteristic.setup()
+    })
+    .then(_ => {
+        hapticIntervalCharacteristic = new Characteristic(HAPTIC_INTERVAL_CHARACTERISTIC_UUID, handleHapticInteralChange, "HAPTIC_INTERVAL");
+        return hapticIntervalCharacteristic.setup()
     });
+}
+
+function handleHapticInteralChange(event) {
+    console.log("HAPTIC_INTERVAL changed")
 }
 
 document.querySelector('#connect-bluetooth').addEventListener('click', function() {
     connectBluetooth();
+});
+
+document.querySelector('#btn-save-interval').addEventListener('click', function() {
+    updateHapticInterval();
 });
 
 'use strict';
